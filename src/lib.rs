@@ -84,14 +84,31 @@ impl AddAssign<Direction> for Position {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq)]
 struct Tile {
     number: i32,
+    state: TileState,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum TileState {
+    New,
+    Static,
+    Merged,
 }
 
 impl Tile {
     fn new(number: i32) -> Tile {
-        Tile { number }
+        Tile {
+            number,
+            state: TileState::New,
+        }
+    }
+}
+
+impl PartialEq for Tile {
+    fn eq(&self, other: &Tile) -> bool {
+        self.number == other.number
     }
 }
 
@@ -111,7 +128,20 @@ impl Grid {
         self.cells.get(position.index()).and_then(|tile| *tile)
     }
 
+    fn prepare_for_move(&mut self) {
+        for i in 0..16 {
+            self.cells
+                .get_mut(i)
+                .and_then(|cell| cell.as_mut())
+                .map(|tile| {
+                    tile.state = TileState::Static;
+                });
+        }
+    }
+
     pub fn move_in(&mut self, direction: Direction) {
+        self.prepare_for_move();
+
         let traversal = direction.build_traversal();
 
         let mut moved = false;
@@ -122,7 +152,7 @@ impl Grid {
     }
 
     fn traverse_from(&mut self, start_position: Position, in_direction: Direction) {
-        let start_tile = match self.get(start_position) {
+        let mut start_tile = match self.get(start_position) {
             Some(tile) => tile,
             None => return,
         };
@@ -136,7 +166,13 @@ impl Grid {
                 break;
             }
 
-            if self.get(next_position).is_some() {
+            if let Some(tile) = self.get(next_position) {
+                if tile == start_tile && tile.state != TileState::Merged {
+                    start_tile.number *= 2;
+                    start_tile.state = TileState::Merged;
+                    new_position = next_position;
+                }
+
                 break;
             }
 
@@ -158,7 +194,7 @@ mod tests {
         struct TestCase {
             state: [i32; 16],
             expected: [i32; 16],
-            direction: Direction,
+            moves: Vec<Direction>,
         }
 
         let test_cases = [
@@ -177,7 +213,7 @@ mod tests {
                     0, 0, 0, 0,
                     0, 0, 0, 0,
                 ],
-                direction: Direction::Up,
+                moves: vec![Direction::Up],
             },
             TestCase {
                 #[rustfmt::skip]
@@ -194,7 +230,7 @@ mod tests {
                     0, 0, 0, 0,
                     0, 2, 2, 0,
                 ],
-                direction: Direction::Down,
+                moves: vec![Direction::Down],
             },
             TestCase {
                 #[rustfmt::skip]
@@ -211,7 +247,7 @@ mod tests {
                     2, 0, 0, 0,
                     0, 0, 0, 0,
                 ],
-                direction: Direction::Left,
+                moves: vec![Direction::Left],
             },
             TestCase {
                 #[rustfmt::skip]
@@ -228,7 +264,7 @@ mod tests {
                     0, 0, 0, 2,
                     0, 0, 0, 0,
                 ],
-                direction: Direction::Right,
+                moves: vec![Direction::Right],
             },
             TestCase {
                 #[rustfmt::skip]
@@ -245,17 +281,70 @@ mod tests {
                     0, 0, 0, 4,
                     0, 0, 4, 2,
                 ],
-                direction: Direction::Right,
+                moves: vec![Direction::Right],
+            },
+            TestCase {
+                #[rustfmt::skip]
+                state: [
+                    0, 0, 2, 2,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                ],
+                #[rustfmt::skip]
+                expected: [
+                    0, 0, 0, 4,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                ],
+                moves: vec![Direction::Right],
+            },
+            TestCase {
+                #[rustfmt::skip]
+                state: [
+                    2, 2, 2, 2,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                ],
+                #[rustfmt::skip]
+                expected: [
+                    0, 0, 4, 4,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                    0, 0, 0, 0,
+                ],
+                moves: vec![Direction::Right],
+            },
+            TestCase {
+                #[rustfmt::skip]
+                state: [
+                    0, 0, 4, 4,
+                    2, 0, 0, 2,
+                    0, 2, 0, 2,
+                    4, 0, 2, 2,
+                ],
+                #[rustfmt::skip]
+                expected: [
+                    0, 0, 0, 8,
+                    0, 0, 0, 4,
+                    0, 0, 0, 4,
+                    0, 0, 0, 8,
+                ],
+                moves: vec![Direction::Right, Direction::Right],
             },
         ];
 
-        for case in &test_cases {
+        for (i, case) in test_cases.iter().enumerate() {
             let mut state = make_grid(case.state);
             let expected = make_grid(case.expected);
 
-            state.move_in(case.direction);
+            for direction in &case.moves {
+                state.move_in(*direction);
+            }
 
-            assert_eq!(state, expected);
+            assert_eq!(state, expected, "TestCase #{}", i);
         }
     }
 
