@@ -492,6 +492,7 @@ struct Model {
     grid: Grid,
     #[allow(dead_code)]
     keyboard_event_listener: KeyListenerHandle,
+    current_render: i32,
 }
 
 impl Model {
@@ -517,6 +518,7 @@ impl Component for Model {
         Self {
             link,
             grid: Grid::default(),
+            current_render: 0,
             keyboard_event_listener,
         }
     }
@@ -532,6 +534,8 @@ impl Component for Model {
             },
         };
 
+        self.current_render += 1;
+
         true
     }
 
@@ -542,7 +546,7 @@ impl Component for Model {
     fn view(&self) -> Html {
         html! {
             <div class="grid-wrapper">
-                <div class="grid">
+                <div class="grid" key=self.current_render>
                 { for (0..16).map(|_| { html! { <div class="cell"></div> }}) }
                 { for self.grid.tiles().map(|(position, tile)| html! { <TileComponent position=position tile=tile />} ) }
                 </div>
