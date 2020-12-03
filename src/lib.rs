@@ -1,3 +1,6 @@
+use rand::seq::IteratorRandom;
+use rand::thread_rng;
+use rand::{rngs::ThreadRng, Rng};
 use std::ops::{Add, AddAssign};
 use wasm_bindgen::prelude::*;
 use yew::prelude::*;
@@ -114,14 +117,30 @@ impl PartialEq for Tile {
 
 type Cell = Option<Tile>;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 struct Grid {
     cells: [Cell; 16],
+    rng: ThreadRng,
+    enable_new_tiles: bool,
+}
+
+impl PartialEq for Grid {
+    fn eq(&self, other: &Grid) -> bool {
+        self.cells == other.cells
+    }
 }
 
 impl Grid {
     pub fn new(cells: [Cell; 16]) -> Grid {
-        Grid { cells }
+        Grid {
+            cells,
+            rng: thread_rng(),
+            enable_new_tiles: true,
+        }
+    }
+
+    pub fn disable_new_tiles(&mut self) {
+        self.enable_new_tiles = false;
     }
 
     fn get(&self, position: Position) -> Option<Tile> {
@@ -147,14 +166,18 @@ impl Grid {
         let mut moved = false;
 
         for start_position in traversal {
-            self.traverse_from(start_position, direction);
+            moved |= self.traverse_from(start_position, direction);
+        }
+
+        if moved {
+            self.add_random_tile()
         }
     }
 
-    fn traverse_from(&mut self, start_position: Position, in_direction: Direction) {
+    fn traverse_from(&mut self, start_position: Position, in_direction: Direction) -> bool {
         let mut start_tile = match self.get(start_position) {
             Some(tile) => tile,
-            None => return,
+            None => return false,
         };
 
         let mut new_position = start_position;
@@ -179,8 +202,33 @@ impl Grid {
             new_position = next_position;
         }
 
+        if start_position == new_position {
+            return false;
+        }
+
         self.cells[start_position.index()] = None;
         self.cells[new_position.index()] = Some(start_tile);
+
+        return true;
+    }
+
+    fn add_random_tile(&mut self) {
+        if !self.enable_new_tiles {
+            return;
+        }
+
+        let rng = &mut self.rng;
+
+        let empty_cells = self.cells.iter_mut().filter(|x| x.is_none());
+
+        if let Some(empty) = empty_cells.choose(rng) {
+            let number = match self.rng.gen::<f64>() {
+                x if x > 0.9 => 4,
+                _ => 2,
+            };
+
+            *empty = Some(Tile::new(number));
+        }
     }
 }
 
@@ -340,6 +388,8 @@ mod tests {
             let mut state = make_grid(case.state);
             let expected = make_grid(case.expected);
 
+            state.disable_new_tiles();
+
             for direction in &case.moves {
                 state.move_in(*direction);
             }
@@ -363,6 +413,40 @@ mod tests {
                 .try_into()
                 .unwrap(),
         )
+    }
+
+    #[test]
+    fn it_adds_random_tile_after_move() {
+        #[rustfmt::skip]
+        let mut grid = make_grid([
+            0, 0, 0, 0,
+            0, 2, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        ]);
+
+        grid.move_in(Direction::Right);
+
+        let count = grid.cells.iter().filter(|cell| cell.is_some()).count();
+
+        assert_eq!(2, count);
+    }
+
+    #[test]
+    fn it_doesnt_add_random_tile_after_invalid_move() {
+        #[rustfmt::skip]
+        let mut grid = make_grid([
+            0, 0, 0, 0,
+            0, 0, 0, 2,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        ]);
+
+        grid.move_in(Direction::Right);
+
+        let count = grid.cells.iter().filter(|cell| cell.is_some()).count();
+
+        assert_eq!(1, count);
     }
 }
 

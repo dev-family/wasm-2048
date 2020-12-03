@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 yew = "0.17"
 wasm-bindgen = "0.2.67"
+rand = { version = "0.7.3", features = ["wasm-bindgen"] }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
