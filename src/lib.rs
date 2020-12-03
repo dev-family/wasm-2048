@@ -96,6 +96,7 @@ impl AddAssign<Direction> for Position {
 struct Tile {
     number: i32,
     state: TileState,
+    previous_position: Option<Position>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -120,6 +121,7 @@ impl Tile {
         Tile {
             number,
             state: TileState::New,
+            previous_position: None,
         }
     }
 }
@@ -181,6 +183,7 @@ impl Grid {
                 .and_then(|cell| cell.as_mut())
                 .map(|tile| {
                     tile.state = TileState::Static;
+                    tile.previous_position = Some(Position::from_index(i));
                 });
         }
     }
@@ -265,6 +268,20 @@ impl Grid {
             .filter_map(|(i, cell)| match cell {
                 None => None,
                 Some(tile) => Some((Position::from_index(i), *tile)),
+            })
+            .flat_map(|(position, tile)| match tile.state {
+                TileState::Merged => vec![
+                    (position, tile),
+                    (
+                        position,
+                        Tile {
+                            state: TileState::Static,
+                            previous_position: tile.previous_position,
+                            number: tile.number / 2,
+                        },
+                    ),
+                ],
+                _ => vec![(position, tile)],
             })
     }
 }
@@ -558,6 +575,8 @@ impl Component for Model {
 struct TileComponent {
     tile: Tile,
     position: Position,
+    #[allow(dead_code)]
+    timeout_task: Option<RenderTask>,
 }
 
 impl TileComponent {
@@ -582,18 +601,46 @@ struct TileComponentProps {
     position: Position,
 }
 
+enum TileMsg {
+    ActualPosition(Position),
+}
+
 impl Component for TileComponent {
-    type Message = ();
+    type Message = TileMsg;
     type Properties = TileComponentProps;
 
     fn create(props: Self::Properties, link: ComponentLink<Self>) -> Self {
+        let mut position = props.position;
+        let mut timeout_task = None;
+
+        match (props.tile.state, props.tile.previous_position) {
+            (TileState::Merged, _) => {}
+            (_, Some(previous_position)) => {
+                position = previous_position;
+
+                let actual_position = props.position;
+
+                timeout_task = Some(RenderService::request_animation_frame(
+                    link.callback(move |_| TileMsg::ActualPosition(actual_position)),
+                ));
+            }
+            _ => {}
+        }
+
         Self {
+            timeout_task,
             tile: props.tile,
-            position: props.position,
+            position,
         }
     }
 
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
+        match msg {
+            TileMsg::ActualPosition(position) => {
+                self.position = position;
+            }
+        }
+
         true
     }
 
