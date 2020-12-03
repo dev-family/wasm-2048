@@ -1,9 +1,14 @@
+#![recursion_limit = "256"]
+
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::{rngs::ThreadRng, Rng};
 use std::ops::{Add, AddAssign};
 use wasm_bindgen::prelude::*;
 use yew::prelude::*;
+use yew::services::keyboard::{KeyListenerHandle, KeyboardService};
+use yew::services::render::{RenderService, RenderTask};
+use yew::utils::document;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum Direction {
@@ -100,6 +105,16 @@ enum TileState {
     Merged,
 }
 
+impl TileState {
+    fn to_string(&self) -> &str {
+        match self {
+            TileState::New => "new",
+            TileState::Static => "static",
+            TileState::Merged => "merged",
+        }
+    }
+}
+
 impl Tile {
     fn new(number: i32) -> Tile {
         Tile {
@@ -122,6 +137,18 @@ struct Grid {
     cells: [Cell; 16],
     rng: ThreadRng,
     enable_new_tiles: bool,
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        let mut grid = Grid::new([None; 16]);
+
+        for _ in 0..2 {
+            grid.add_random_tile();
+        }
+
+        grid
+    }
 }
 
 impl PartialEq for Grid {
@@ -229,6 +256,16 @@ impl Grid {
 
             *empty = Some(Tile::new(number));
         }
+    }
+
+    fn tiles(&self) -> impl Iterator<Item = (Position, Tile)> + '_ {
+        self.cells
+            .iter()
+            .enumerate()
+            .filter_map(|(i, cell)| match cell {
+                None => None,
+                Some(tile) => Some((Position::from_index(i), *tile)),
+            })
     }
 }
 
@@ -452,39 +489,123 @@ mod tests {
 
 struct Model {
     link: ComponentLink<Self>,
-    value: i64,
+    grid: Grid,
+    #[allow(dead_code)]
+    keyboard_event_listener: KeyListenerHandle,
+}
+
+impl Model {
+    fn move_in(&mut self, direction: Direction) {
+        self.grid.move_in(direction);
+    }
 }
 
 enum Msg {
-    AddOne,
+    KeyboardEvent(KeyboardEvent),
 }
 
 impl Component for Model {
     type Message = Msg;
     type Properties = ();
+
     fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
-        Self { link, value: 0 }
+        let keyboard_event_listener = KeyboardService::register_key_down(
+            &document(),
+            (&link).callback(|e: KeyboardEvent| Msg::KeyboardEvent(e)),
+        );
+
+        Self {
+            link,
+            grid: Grid::default(),
+            keyboard_event_listener,
+        }
     }
 
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
         match msg {
-            Msg::AddOne => self.value += 1,
-        }
+            Msg::KeyboardEvent(e) => match e.key_code() {
+                37 => self.move_in(Direction::Left),
+                38 => self.move_in(Direction::Up),
+                39 => self.move_in(Direction::Right),
+                40 => self.move_in(Direction::Down),
+                _ => return false,
+            },
+        };
+
         true
     }
 
     fn change(&mut self, _props: Self::Properties) -> ShouldRender {
-        // Should only return "true" if new properties are different to
-        // previously received properties.
-        // This component has no properties so we will always return "false".
-        false
+        true
     }
 
     fn view(&self) -> Html {
         html! {
-            <div>
-                <button onclick=self.link.callback(|_| Msg::AddOne)>{ "+1" }</button>
-                <p>{ self.value }</p>
+            <div class="grid-wrapper">
+                <div class="grid">
+                { for (0..16).map(|_| { html! { <div class="cell"></div> }}) }
+                { for self.grid.tiles().map(|(position, tile)| html! { <TileComponent position=position tile=tile />} ) }
+                </div>
+            </div>
+        }
+    }
+}
+
+struct TileComponent {
+    tile: Tile,
+    position: Position,
+}
+
+impl TileComponent {
+    fn class_name(&self) -> String {
+        format!(
+            "tile tile-{} tile-{}-{} tile-{}",
+            if self.tile.number <= 2048 {
+                self.tile.number.to_string()
+            } else {
+                "super".to_string()
+            },
+            self.position.index() % 4,
+            self.position.index() / 4,
+            self.tile.state.to_string(),
+        )
+    }
+}
+
+#[derive(Properties, Clone)]
+struct TileComponentProps {
+    tile: Tile,
+    position: Position,
+}
+
+impl Component for TileComponent {
+    type Message = ();
+    type Properties = TileComponentProps;
+
+    fn create(props: Self::Properties, link: ComponentLink<Self>) -> Self {
+        Self {
+            tile: props.tile,
+            position: props.position,
+        }
+    }
+
+    fn update(&mut self, msg: Self::Message) -> ShouldRender {
+        true
+    }
+
+    fn change(&mut self, _props: Self::Properties) -> ShouldRender {
+        self.tile = _props.tile;
+        self.position = _props.position;
+
+        true
+    }
+
+    fn view(&self) -> Html {
+        html! {
+            <div class=self.class_name()>
+                <div class="tile-inner">
+                    { self.tile.number.to_string() }
+                </div>
             </div>
         }
     }
