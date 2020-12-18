@@ -3,12 +3,35 @@
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::{rngs::ThreadRng, Rng};
-use std::ops::{Add, AddAssign};
+use std::ops::{Add, AddAssign, Sub};
 use wasm_bindgen::prelude::*;
 use yew::prelude::*;
 use yew::services::keyboard::{KeyListenerHandle, KeyboardService};
 use yew::services::render::{RenderService, RenderTask};
 use yew::utils::document;
+
+#[derive(Debug, Copy, Clone)]
+struct Vec2 {
+    x: i32,
+    y: i32,
+}
+
+impl Vec2 {
+    pub fn new(x: i32, y: i32) -> Vec2 {
+        Vec2 { x, y }
+    }
+}
+
+impl Sub<Vec2> for Vec2 {
+    type Output = Self;
+
+    fn sub(self, rhs: Vec2) -> Self::Output {
+        Vec2 {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum Direction {
@@ -43,6 +66,24 @@ impl Direction {
             .iter()
             .flat_map(|i| j_traversal.iter().map(move |j| Position::new(*i, *j)))
             .collect()
+    }
+}
+
+impl From<Vec2> for Direction {
+    fn from(vec: Vec2) -> Self {
+        if vec.x.abs() > vec.y.abs() {
+            if vec.x > 0 {
+                Direction::Right
+            } else {
+                Direction::Left
+            }
+        } else {
+            if vec.y > 0 {
+                Direction::Down
+            } else {
+                Direction::Up
+            }
+        }
     }
 }
 
@@ -510,6 +551,7 @@ struct Model {
     #[allow(dead_code)]
     keyboard_event_listener: KeyListenerHandle,
     current_render: i32,
+    touch_start: Option<TouchEvent>,
 }
 
 impl Model {
@@ -520,6 +562,8 @@ impl Model {
 
 enum Msg {
     KeyboardEvent(KeyboardEvent),
+    TouchStart(TouchEvent),
+    TouchEnd(TouchEvent),
 }
 
 impl Component for Model {
@@ -535,6 +579,7 @@ impl Component for Model {
         Self {
             link,
             grid: Grid::default(),
+            touch_start: None,
             current_render: 0,
             keyboard_event_listener,
         }
@@ -549,6 +594,30 @@ impl Component for Model {
                 40 => self.move_in(Direction::Down),
                 _ => return false,
             },
+            Msg::TouchStart(e) => {
+                e.prevent_default();
+
+                self.touch_start = Some(e);
+
+                return false;
+            }
+            Msg::TouchEnd(touches_end) => {
+                let touch_start = self
+                    .touch_start
+                    .as_ref()
+                    .and_then(|e| e.changed_touches().item(0))
+                    .map(|touch| Vec2::new(touch.client_x(), touch.client_y()));
+
+                let touch_end = touches_end
+                    .changed_touches()
+                    .item(0)
+                    .map(|touch| Vec2::new(touch.client_x(), touch.client_y()));
+
+                match (touch_start, touch_end) {
+                    (Some(start), Some(end)) => self.move_in((end - start).into()),
+                    _ => return false,
+                };
+            }
         };
 
         self.current_render += 1;
@@ -562,7 +631,7 @@ impl Component for Model {
 
     fn view(&self) -> Html {
         html! {
-            <div class="grid-wrapper">
+            <div class="grid-wrapper" ontouchstart=self.link.callback(Msg::TouchStart) ontouchend=self.link.callback(Msg::TouchEnd)>
                 <div class="grid" key=self.current_render>
                 { for (0..16).map(|_| { html! { <div class="cell"></div> }}) }
                 { for self.grid.tiles().map(|(position, tile)| html! { <TileComponent position=position tile=tile />} ) }
