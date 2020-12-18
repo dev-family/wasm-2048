@@ -664,5 +664,10 @@ impl Component for TileComponent {
 
 #[wasm_bindgen(start)]
 pub fn run_app() {
-    App::<Model>::new().mount_to_body();
+    let root = document()
+        .query_selector("#root")
+        .expect("can't get #root node for rendering")
+        .expect("can't unwrap #root node");
+
+    App::<Model>::new().mount(root);
 }
