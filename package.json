@@ -1,0 +1,15 @@
+{
+  "name": "rust-2048",
+  "collaborators": [
+    "n7olkachev <n7olkachev@gmail.com>"
+  ],
+  "version": "0.1.0",
+  "files": [
+    "wasm_bg.wasm",
+    "wasm.js",
+    "wasm.d.ts"
+  ],
+  "module": "wasm.js",
+  "types": "wasm.d.ts",
+  "sideEffects": false
+}
